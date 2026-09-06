@@ -213,6 +213,19 @@ voidbuster/gui.py      the window (VertexUI + Dear ImGui)
 profiles/           _base.json is always on; the rest are per game
 ```
 
-Needs `imgui-bundle` for the window. The headless viewer needs nothing beyond
-the standard library, which is deliberate: it has to work on a machine where
-you have not installed anything.
+Needs `imgui-bundle` for the window:
+
+```bash
+pip install imgui-bundle
+```
+
+The headless viewer needs nothing beyond the standard library, which is
+deliberate: it has to work on a machine where you have not installed anything.
+
+`vertexui/` is vendored rather than depended on - it is a small dark-UI toolkit
+of mine that is not published separately, and a debugger you reach for at 2am
+should not need a second install to open.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).
