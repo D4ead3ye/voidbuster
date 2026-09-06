@@ -15,7 +15,7 @@ import re
 import time
 from pathlib import Path
 
-PROFILE_DIR = Path(__file__).resolve().parent.parent / "profiles"
+from . import paths
 
 
 class Rule:
@@ -142,36 +142,50 @@ def _read(path):
     return Profile(json.loads(Path(path).read_text(encoding="utf-8")), path)
 
 
-def load_all(directory=PROFILE_DIR):
+def load_all(directories=None):
     """Every game profile on disk. A broken one is reported, not fatal: a typo
     in a profile should not take the logger down mid-session.
 
     Files starting with an underscore are building blocks (see load_base), not
-    games, so they are not offered as something to select.
+    games, so they are not offered as something to select. Several folders are
+    searched: one beside the exe, one inside the build. A name found in the
+    first shadows the same name in the second, so your own copy of a shipped
+    profile wins and survives the next release.
     """
-    out, problems = [], []
-    directory = Path(directory)
-    if not directory.is_dir():
-        return out, problems
-    for path in sorted(directory.glob("*.json")):
-        if path.name.startswith("_"):
+    out, problems, claimed = [], [], set()
+    for directory in _dirs(directories):
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.glob("*.json")):
+            if path.name.startswith("_") or path.name.lower() in claimed:
+                continue
+            claimed.add(path.name.lower())
+            try:
+                out.append(_read(path))
+            except (OSError, ValueError, re.error) as e:
+                problems.append(path.name + ": " + str(e))
+    return sorted(out, key=lambda p: p.name), problems
+
+
+def load_base(directories=None):
+    """The always-on profile: console behaviour that is true of every title."""
+    for directory in _dirs(directories):
+        path = directory / BASE_NAME
+        if not path.exists():
             continue
         try:
-            out.append(_read(path))
-        except (OSError, ValueError, re.error) as e:
-            problems.append(path.name + ": " + str(e))
-    return out, problems
+            return _read(path)
+        except (OSError, ValueError, re.error):
+            continue
+    return EMPTY
 
 
-def load_base(directory=PROFILE_DIR):
-    """The always-on profile: console behaviour that is true of every title."""
-    path = Path(directory) / BASE_NAME
-    if not path.exists():
-        return EMPTY
-    try:
-        return _read(path)
-    except (OSError, ValueError, re.error):
-        return EMPTY
+def _dirs(directories):
+    if directories is None:
+        return paths.profile_dirs()
+    if isinstance(directories, (str, Path)):
+        return [Path(directories)]
+    return [Path(d) for d in directories]
 
 
 def combine(base, game):

@@ -23,9 +23,10 @@ from imgui_bundle import ImVec2, ImVec4, hello_imgui, imgui
 
 import vertexui as vui
 
-from . import crash, look, rules, session, sources
+from . import crash, look, paths, rules, session, sources
 
-ROOT = Path(__file__).resolve().parent.parent
+# Beside the exe when frozen, so a session outlives the process. See paths.py.
+ROOT = paths.app_dir()
 LOG_DIR = ROOT / "logs"
 CRASH_DIR = ROOT / "crash_logs"
 SETTINGS = ROOT / "voidbuster.json"

@@ -10,6 +10,9 @@ the text, so a game nobody has ever profiled still gets tags, severities,
 colours and live counters. Profiles then add precision on top, and are never
 required.
 
+**[Download VoidBuster.exe](../../releases/latest)** - one file, no Python, no
+install. Or run it from source:
+
 ```
 python voidbuster.py                      the window
 python voidbuster.py --sweep              which port is this game logging on?
@@ -181,10 +184,15 @@ resolve — that is expected, not a failure.
 
 In order, cheapest first:
 
+0. **The Windows firewall prompt.** The first time you run it, Windows asks
+   whether to allow network access. Say yes — VoidBuster only ever listens, it
+   never sends to the console. Deny it and nothing arrives, with no other
+   symptom. If you missed the prompt, it is under Windows Defender Firewall >
+   Allow an app.
 1. **Self-test** (Setup tab, or `--self-test`) sends a datagram to our own
    listener. If that line does not appear, the problem is this end — almost
-   always the Windows firewall, which blocks inbound UDP for a new app by
-   default. If it does appear, the problem is on the console.
+   always the firewall above. If it does appear, the problem is on the
+   console.
 2. **Port sweep** (`--sweep`) binds every likely port for eight seconds. Start
    the game while it runs. A title logging on a port nobody expected shows up
    here.
@@ -198,6 +206,23 @@ In order, cheapest first:
 6. **After a hard freeze there is often nothing at all** — the console stopped
    before it could send. Fetch the crash dump instead.
 
+## Building the exe
+
+```bash
+pip install pyinstaller
+pyinstaller VoidBuster.spec
+```
+
+One file in `dist/`. It is a console application on purpose — the headless
+viewer is half the tool — and the window hides that console itself when the exe
+is double-clicked, while leaving your terminal alone when you run it from one.
+
+Sessions, dumps, settings and any profiles you add live **beside the exe**, not
+inside it. A one-file build unpacks to a temporary folder that Windows deletes
+on exit, so anything written relative to the code would vanish with it — which
+for a logger means losing the session you were recording. See
+[voidbuster/paths.py](voidbuster/paths.py).
+
 ## Layout
 
 ```
@@ -208,6 +233,7 @@ voidbuster/rules.py    profiles: load, score, combine, hot-reload
 voidbuster/session.py  buffer, counters, rates, stalls, recording, snapshots
 voidbuster/crash.py    FTP fetch, dump parsing, addr2line
 voidbuster/look.py     themes, text size, density, sound - all persisted
+voidbuster/paths.py    beside-the-exe vs inside-the-build, which a frozen app must split
 voidbuster/cli.py      headless
 voidbuster/gui.py      the window (VertexUI + Dear ImGui)
 profiles/           _base.json is always on; the rest are per game

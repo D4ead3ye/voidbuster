@@ -11,9 +11,10 @@ import sys
 import time
 from pathlib import Path
 
-from . import crash, rules, session, sources
+from . import crash, paths, rules, session, sources
 
-ROOT = Path(__file__).resolve().parent.parent
+# Beside the exe when frozen, so a session outlives the process. See paths.py.
+ROOT = paths.app_dir()
 LOG_DIR = ROOT / "logs"
 CRASH_DIR = ROOT / "crash_logs"
 
