@@ -19,7 +19,11 @@ datas = [d for d in datas
 
 # Default profiles travel inside the build; paths.py also looks for a profiles
 # folder beside the exe, which is where anything the user adds should go.
-datas += [("profiles", "profiles")]
+# *.local.json is somebody's own game and has no business inside a release, so
+# the folder is listed file by file rather than wholesale.
+import glob as _glob
+datas += [(_p, "profiles") for _p in _glob.glob("profiles/*.json")
+          if not _p.endswith(".local.json")]
 
 a = Analysis(
     ["voidbuster.py"],
