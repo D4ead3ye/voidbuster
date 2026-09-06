@@ -114,7 +114,7 @@ def split_tag(text):
     """Peel tags off the front of a line.
 
     Returns (tags, remainder). Several prefixes are consumed because
-    "[net][anchor] joined" carries two useful facets, and filtering on either
+    "[net][sync] joined" carries two useful facets, and filtering on either
     should find the line.
     """
     tags = []

@@ -2,6 +2,10 @@
 logs/
 crash_logs/
 
+# Profiles for your own games: they load exactly like the shipped ones but
+# belong to you, not to the repo.
+profiles/*.local.json
+
 # Per-machine settings: console IP, theme, ports.
 voidbuster.json
 wiiulog.json

@@ -1,13 +1,15 @@
 # VoidBuster
 
-A log viewer for **any** Wii U title, rather than one game's dashboard.
+A log viewer for **any** Wii U title.
 
-The Lighthouse dashboard in `bk-wiiu/dashboard.py` parses four hardcoded
-regexes. Point it at a different game and the log still scrolls, but the
-counters stay empty and nothing is tagged, because nothing in that game emits
-`[gfx_gx2] frame N: ...`. This tool inverts that: the structure is derived from
-the text, so a game nobody has ever profiled still gets tags, severities,
-colours and live counters. Profiles then add precision on top, and are never
+Most console log tools are a wall of scrolling text, or a dashboard built
+around one game's output - a handful of regexes that match the title they were
+written for and nothing else. Point one at a different game and the log still
+scrolls, but the counters stay empty and nothing is tagged.
+
+VoidBuster inverts that. Structure is derived from the text itself, so a title
+nobody has ever profiled still gets tags, severity, colours and live counters
+the moment it says anything. Profiles add precision on top, and are never
 required.
 
 **[Download VoidBuster.exe](../../releases/latest)** - one file, no Python, no
@@ -40,7 +42,7 @@ before a freeze is not lost.
 
 ## What it derives, with no configuration
 
-- **Tags** from `[gfx]`, `[net][anchor]`, `AXFX::Init:` and `main.c:88:`
+- **Tags** from `[gfx]`, `[net][sync]`, `AXFX::Init:` and `main.c:88:`
   prefixes. Each gets a stable colour hashed from its name, so the same
   subsystem is the same colour in every session.
 - **Severity** from what the line says — `assertion failed` is fatal, `packet
@@ -158,9 +160,11 @@ games generally needs no input.
 
 Named capture groups become counters. `count` bumps a running total, `level`
 overrides the guessed severity, `alert` surfaces the line in the Signals tab,
-`watch` pins counters to the top of the table. `profiles/lighthouse.json`
-carries the Banjo-Kazooie counters across from the old dashboard, so a
-Lighthouse session looks the same in either tool.
+`watch` pins counters to the top of the table.
+
+`profiles/example.json` is a working one to copy. Drop your own into the
+`profiles/` folder beside the exe: a file there shadows a bundled one of the
+same name, so updating VoidBuster never overwrites your edits.
 
 ## Crashes
 
@@ -172,7 +176,7 @@ has changed between Aroma releases and homebrew writes its own variants.
 Addresses inside the RPX window (`0x02000000`–`0x10000000`) can be named:
 
 ```bash
-python voidbuster.py --read-crash crash_logs/dump.txt --elf ../bk-wiiu/Lighthouse/build-wiiu/lighthouse.elf
+python voidbuster.py --read-crash crash_logs/dump.txt --elf build/mygame.elf
 ```
 
 Anything in the `0x1nnnnnnn` or `0xe`/`0xf` ranges is an OS library and will not

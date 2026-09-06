@@ -17,7 +17,7 @@ Callstack:
   0x101c4400
 
 Modules:
-  lighthouse.rpx
+  mygame.rpx
   coreinit.rpl
   gx2.rpl
   sysapp.rpl

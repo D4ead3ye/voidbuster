@@ -1,0 +1,41 @@
+{
+  "name": "example",
+  "about": "A worked example of every field a profile can use. Copy it, change the patterns to match what your game prints, and drop it in the profiles folder beside the tool. Nothing here is needed to read a log - the automatic parser already tags and counts. A profile is for what the text cannot say on its own: that this line means a frame boundary, or that this one is fatal even though it reads calmly.",
+  "match": [
+    "\\[mygame\\]",
+    "MyGame v\\d"
+  ],
+  "rules": [
+    {
+      "re": "\\[mygame\\] frame (?P<frame>\\d+) in (?P<frame_ms>\\d+)ms, (?P<draws>\\d+) draws",
+      "label": "frame"
+    },
+    {
+      "re": "\\[audio\\] (?P<voices>\\d+) voices, (?P<underruns>\\d+) underruns",
+      "label": "audio"
+    },
+    {
+      "re": "\\[net\\].*(?:peer|join|sync)",
+      "label": "net",
+      "count": "net_events"
+    },
+    {
+      "re": "OUT OF ARENA",
+      "label": "arena",
+      "level": "fatal",
+      "count": "arena_oom",
+      "alert": true
+    },
+    {
+      "re": "heap ([0-9]+) / ([0-9]+)",
+      "label": "heap",
+      "set": { "heap_used": 1, "heap_total": 2 }
+    }
+  ],
+  "tags": {
+    "mygame": "#5ad0ff",
+    "audio": "#f0c05a",
+    "net": "#7ff0a8"
+  },
+  "watch": ["frame", "frame_ms", "draws", "underruns", "arena_oom"]
+}

@@ -1,3 +1,3 @@
-"""voidbuster - a log viewer for any Wii U title, not one game's dashboard."""
+"""voidbuster - a log viewer for any Wii U title."""
 
 __version__ = "1.0.0"
