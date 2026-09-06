@@ -1,0 +1,13 @@
+# Sessions and dumps are the tool's output, not its source.
+logs/
+crash_logs/
+
+# Per-machine settings: console IP, theme, ports.
+voidbuster.json
+wiiulog.json
+
+# Dear ImGui window layout, written next to whatever ran.
+*.ini
+
+__pycache__/
+*.py[cod]

@@ -1,0 +1,50 @@
+{
+  "name": "lighthouse",
+  "about": "Banjo-Kazooie / Lighthouse Wii U port. The counters here are the ones the port's own dashboard grew, carried over so a session looks the same in either tool.",
+  "match": [
+    "\\[gfx_gx2\\]",
+    "\\[f3d\\]",
+    "\\[seg\\]",
+    "Lighthouse",
+    "modelRender_executeGeoCmds"
+  ],
+  "rules": [
+    {
+      "re": "\\[gfx_gx2\\] frame (?P<frame>\\d+): (?P<draws>\\d+) draws, (?P<tris>\\d+) tris",
+      "label": "gx2-frame"
+    },
+    {
+      "re": "\\[f3d\\] tris in=(?P<tris_in>\\d+) rect=(?P<rect>\\d+) clipped=(?P<clipped>\\d+) culled=(?P<culled>\\d+) \\| vtx=(?P<vtx>\\d+) rej=(?P<rej>\\d+)",
+      "label": "f3d"
+    },
+    {
+      "re": "\\[idle\\] (?P<idle_waits>\\d+) waits costing (?P<idle_ms>\\d+)ms",
+      "label": "idle"
+    },
+    {
+      "re": "calls=(?P<calls>\\d+) lod=(?P<lod>\\d+) frustum=(?P<frustum>\\d+) emitted=(?P<emitted>\\d+)",
+      "label": "cull"
+    },
+    {
+      "re": "\\[anchor\\].*(?:peer|join|sync)",
+      "label": "anchor",
+      "count": "anchor_events"
+    },
+    {
+      "re": "\\[seg\\].*(?:load|unload)",
+      "label": "segment",
+      "count": "segment_events"
+    }
+  ],
+  "tags": {
+    "gfx_gx2": "#5ad0ff",
+    "f3d": "#7fb8ff",
+    "seg": "#8fd0ff",
+    "game": "#a0d8ff",
+    "idle": "#c0c0cc",
+    "anchor": "#7ff0a8",
+    "network": "#7ff0c8",
+    "rando": "#9af0b0"
+  },
+  "watch": ["frame", "draws", "tris", "idle_ms", "culled", "anchor_events"]
+}

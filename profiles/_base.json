@@ -1,0 +1,77 @@
+{
+  "name": "base",
+  "about": "Patterns true of the console rather than of any one game. Always applied, under whichever game profile is active. The leading underscore in the filename keeps it out of the game-profile list.",
+  "match": [],
+  "rules": [
+    {
+      "re": "(?i)\\bOSFatal\\b",
+      "label": "OSFatal",
+      "level": "fatal",
+      "count": "osfatal",
+      "alert": true
+    },
+    {
+      "re": "(?i)\\b(DSI|ISI|Program|Alignment|Machine Check)\\s+(exception|interrupt)\\b",
+      "label": "exception",
+      "level": "fatal",
+      "count": "exceptions",
+      "alert": true
+    },
+    {
+      "re": "(?i)(std::terminate|Back Chain|caught unhandled exception|stack (?:dump|trace)|Callstack)",
+      "label": "crash",
+      "level": "fatal",
+      "count": "crash_markers",
+      "alert": true
+    },
+    {
+      "re": "(?i)assert(?:ion)?\\s*(?:failed|failure)",
+      "label": "assert",
+      "level": "fatal",
+      "count": "asserts",
+      "alert": true
+    },
+    {
+      "re": "(?i)\\b(?:out of memory|allocation failed|MEMAllocFrom\\w*\\s+failed|no free heap)",
+      "label": "oom",
+      "level": "error",
+      "count": "alloc_failures",
+      "alert": true
+    },
+    {
+      "re": "(?i)\\b([A-Za-z0-9_.\\-]+\\.rpl)\\b.*(?:load|open|link)",
+      "label": "rpl",
+      "count": "rpl_events"
+    },
+    {
+      "re": "(?i)\\bresult\\s*[:=]?\\s*(?:0x)?(?P<last_result>[89a-fA-F][0-9a-fA-F]{7})\\b",
+      "label": "nn-result",
+      "level": "error"
+    },
+    {
+      "re": "(?i)(?P<fps>\\d+(?:\\.\\d+)?)\\s*fps\\b",
+      "label": "fps"
+    },
+    {
+      "re": "(?i)\\bframe\\s*[#:=]?\\s*(?P<frame>\\d+)\\b",
+      "label": "frame"
+    },
+    {
+      "re": "(?i)\\b(?P<heap_free>\\d+)\\s*(?:bytes|B|KB|MB)\\s*free\\b",
+      "label": "heap"
+    },
+    {
+      "re": "(?i)\\bWUPS\\b|\\bplugin\\b.*\\b(load|init)",
+      "label": "plugin",
+      "count": "plugin_events"
+    }
+  ],
+  "tags": {
+    "voidbuster": "#8892a6",
+    "coreinit": "#c58cf0",
+    "gx2": "#5ad0ff",
+    "vpad": "#f0c05a",
+    "nn": "#9fe07a"
+  },
+  "watch": ["exceptions", "asserts", "crash_markers", "alloc_failures", "fps", "frame"]
+}
