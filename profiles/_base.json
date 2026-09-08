@@ -25,6 +25,13 @@
       "alert": true
     },
     {
+      "re": "NO SHUTDOWN MARKER",
+      "label": "prev-session-lockup",
+      "level": "fatal",
+      "count": "lockups",
+      "alert": true
+    },
+    {
       "re": "(?i)assert(?:ion)?\\s*(?:failed|failure)",
       "label": "assert",
       "level": "fatal",
@@ -71,7 +78,16 @@
     "coreinit": "#c58cf0",
     "gx2": "#5ad0ff",
     "vpad": "#f0c05a",
-    "nn": "#9fe07a"
+    "nn": "#9fe07a",
+    "crumb": "#ff9a6a"
   },
-  "watch": ["exceptions", "asserts", "crash_markers", "alloc_failures", "fps", "frame"]
+  "watch": [
+    "lockups",
+    "exceptions",
+    "asserts",
+    "crash_markers",
+    "alloc_failures",
+    "fps",
+    "frame"
+  ]
 }
