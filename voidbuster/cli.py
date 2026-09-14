@@ -171,10 +171,11 @@ def run(argv=None):
         print(dump.headline())
         info = dump.info or {}
         if info.get("chunks"):
-            print("  ring: %d chunks, %d records, %s"
-                  % (info["chunks"], info.get("records", 0),
-                     ("seam at chunk %s" % info["seam"]) if info.get("certain")
-                     else "order inferred - no single seam"))
+            print("  ring: %d chunks, %d records, newest %s (%s)%s"
+                  % (info["chunks"], info.get("records", 0), info.get("newest"),
+                     info.get("how", "?"),
+                     ("" if info.get("laps") is None
+                      else ", wrapped %d times" % info["laps"])))
         for i, f in enumerate(dump.stack()):
             print("  #%-2d 0x%08x  %s" % (i, f.lr, f.label() or ""))
         if dump.spr:

@@ -122,29 +122,62 @@ def read_chunks(directory):
     return chunks
 
 
-def order(chunks):
-    """Rotate the ring so the oldest chunk is first.
+def read_meta(directory):
+    """The ring's write counter, or None.
 
-    A round-robin buffer read in index order is already chronological apart
-    from exactly one step: the seam where the newest chunk is followed by the
-    oldest. Finding that seam and rotating is exact, and unlike sorting it
-    copes with the many chunks that share a first timestamp.
+    meta.bin is four big-endian bytes counting chunks written since the ring
+    was created - 4264 in a dump that had wrapped 42 times. The newest chunk is
+    therefore `meta % 100`, and the whole order follows from it.
 
-    If more than one seam appears - a dump that was interrupted, or clocks that
-    went backwards for their own reasons - this falls back to a stable sort,
-    which is merely a good guess, and says so via `seam` being None.
+    This is worth preferring over reading the timestamps even though the
+    timestamps usually work, because it does not depend on the content being
+    readable at all: a chunk that is binary, truncated or simply has no date in
+    it is silently misplaced by any content-based ordering, and is ordered
+    correctly by this.
+    """
+    path = Path(directory) / "meta.bin"
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return None
+    if len(raw) != 4:
+        return None
+    return int.from_bytes(raw, "big")
+
+
+def order(chunks, meta=None):
+    """Put the ring in order, oldest first.
+
+    Returns (ordered, newest_index, how). `how` names the evidence used, which
+    the UI reports: "meta.bin" is authoritative, "seam" is derived from the one
+    point where the clock goes backwards, and "sorted" is a last-resort guess
+    worth saying out loud.
     """
     live = [c for c in chunks if not c.empty()]
     if len(live) < 2:
-        return live, None
+        return live, (live[0].index if live else None), "trivial"
+
+    if meta is not None:
+        newest = meta % len(chunks) if chunks else None
+        by_index = {c.index: c for c in live}
+        if newest in by_index:
+            size = len(chunks)
+            rotated = [by_index[(newest + 1 + i) % size]
+                       for i in range(size) if (newest + 1 + i) % size in by_index]
+            if rotated:
+                return rotated, newest, "meta.bin"
+
+    # No usable meta.bin. A round-robin buffer read in index order is already
+    # chronological apart from exactly one step - the seam where the newest
+    # chunk is followed by the oldest - so find that and rotate.
     keys = [c.key() for c in live]
     seams = [i for i in range(len(keys) - 1) if keys[i + 1] < keys[i]]
     if len(seams) == 1:
         cut = seams[0] + 1
-        return live[cut:] + live[:cut], live[seams[0]].index
+        return live[cut:] + live[:cut], live[seams[0]].index, "seam"
     if not seams:
-        return live, live[-1].index
-    return sorted(live, key=Chunk.key), None
+        return live, live[-1].index, "index order"
+    return sorted(live, key=Chunk.key), None, "sorted"
 
 
 def split_records(text):
@@ -201,18 +234,23 @@ def assemble(directory):
     chunks = read_chunks(directory)
     if not chunks:
         return "", {"chunks": 0, "error": "no numbered chunk files in " + str(directory)}
-    ordered, seam = order(chunks)
+    meta = read_meta(directory)
+    ordered, newest, how = order(chunks, meta)
     text = "".join(decode(c.raw) for c in ordered)
     info = {
         "dir": str(directory),
         "chunks": len(chunks),
         "used": len(ordered),
         "bytes": sum(len(c.raw) for c in ordered),
-        "seam": seam,
+        "meta": meta,
+        "laps": (meta // len(chunks)) if (meta and chunks) else None,
+        "how": how,
+        "seam": newest,
         "ordered": [c.index for c in ordered],
-        "newest": ordered[-1].index if ordered else None,
+        "newest": newest,
         "records": sum(c.records for c in ordered),
-        "certain": seam is not None,
+        # "sorted" is the only outcome that is a guess rather than a reading.
+        "certain": how != "sorted",
     }
     return text, info
 

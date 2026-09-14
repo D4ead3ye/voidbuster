@@ -678,11 +678,13 @@ class App:
         imgui.text_colored(t.danger, dump.headline())
         info = dump.info or {}
         if info.get("chunks"):
-            order = "seam at chunk %s" % info["seam"] if info.get("certain") \
-                else "order inferred - no single seam found"
-            imgui.text_colored(t.text_dim,
-                               "ring: %d chunks, %d records, %s"
-                               % (info["chunks"], info.get("records", 0), order))
+            laps = "" if info.get("laps") is None else ", wrapped %d times" % info["laps"]
+            # How the order was arrived at is part of the reading: meta.bin is
+            # authoritative, a seam is inferred, and a sort is a guess.
+            imgui.text_colored(t.text_dim if info.get("certain") else t.warn,
+                               "ring: %d chunks, %d records, newest %s by %s%s"
+                               % (info["chunks"], info.get("records", 0),
+                                  info.get("newest"), info.get("how", "?"), laps))
         stack = dump.stack()
         if stack:
             imgui.dummy(ImVec2(0, 4))

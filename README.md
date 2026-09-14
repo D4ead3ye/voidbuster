@@ -175,10 +175,20 @@ things defeat a naive reader, and all three are handled here:
 - **It is a directory, and the fetch has to recurse.** A flat listing that keeps
   `*.txt` finds nothing at all.
 - **The ring has wrapped.** Read in filename order the log jumps backwards in
-  the middle. VoidBuster finds the seam — the single point where the clock goes
-  back — and rotates, so the exception ends up where it belongs, at the end.
-  Where no single seam exists the order is a best guess, and the tab says so
-  rather than pretending.
+  the middle. `meta.bin` is a big-endian count of chunks written since the ring
+  was created, so the newest chunk is `meta % 100` and the order follows:
+
+  ```
+  meta = 4264   →  newest = 4264 % 100 = 64,  wrapped 42 times
+  order = [(meta + 1 + i) % 100 for i in range(100)]   # 65 … 99, 0 … 64
+  ```
+
+  That is preferred over reading timestamps because it does not depend on the
+  content being readable: a chunk that is binary or simply has no date in it is
+  silently misplaced by any content-based ordering. When `meta.bin` is missing
+  VoidBuster falls back to finding the seam — the one point where the clock
+  goes backwards — and says which method it used, so a guess never passes for
+  a reading.
 - **Records are separated by CR, not LF**, and each is prefixed with its own
   `HH;MM;SS;mmm:` clock. Splitting on newlines yields one enormous line per
   chunk and every downstream parser gives up.
@@ -190,7 +200,7 @@ python voidbuster.py --read-crash crash_logs/2026-09-13_13-13-14
 
 ```
 Core1  Instruction  at 0x0c9c1040  safe|_localeconv_r+0x10  touching 0x00000030
-  ring: 100 chunks, 39357 records, seam at chunk 64
+  ring: 100 chunks, 39357 records, newest 64 (meta.bin), wrapped 42 times
   #0  0x0c9c1040  safe|_localeconv_r+0x10
   #1  0x0c9c31d4  safe|_svfprintf_r+0x2c
 ```
