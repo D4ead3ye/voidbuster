@@ -19,7 +19,7 @@ import time
 from collections import defaultdict, deque
 from pathlib import Path
 
-from . import parse
+from . import launches, parse
 
 MAX_LINES = 20000
 # Rate is measured over a window rather than since the start: a subsystem that
@@ -36,7 +36,7 @@ class Line:
     """One parsed line, kept small - there can be twenty thousand of them."""
 
     __slots__ = ("n", "at", "text", "body", "tags", "level", "source", "origin",
-                 "counters", "labels", "alert")
+                 "counters", "labels", "alert", "launch", "historical", "clock")
 
     def __init__(self, n, event, parsed):
         self.n = n
@@ -48,8 +48,15 @@ class Line:
         self.source = event.source
         self.origin = event.origin
         self.counters = parsed["counters"]
+        # The clock the line itself carried, already peeled off by the parser.
+        # Named `clock` because `stamp()` is the capture time - the two being
+        # different is the entire point of the skew readout.
+        self.clock = parsed["stamp"]
         self.labels = ()
         self.alert = False
+        self.launch = 0
+        # Set by the launch tracker: a replay of an earlier run, not live now.
+        self.historical = False
 
     def stamp(self):
         return datetime.datetime.fromtimestamp(self.at).strftime("%H:%M:%S.%f")[:-3]
@@ -122,7 +129,7 @@ class TagStat:
 class Session:
     """Everything the UI and the CLI read from."""
 
-    def __init__(self, record_dir=None, profile=None, title="session"):
+    def __init__(self, record_dir=None, profile=None, title="session", build=""):
         self.lines = deque(maxlen=MAX_LINES)
         self.counters = {}
         self.tags = {}
@@ -133,6 +140,11 @@ class Session:
         self.stalls = deque(maxlen=100)
         self.crashes = []
         self.profile = profile
+        # What was deployed when this capture started. Stamped into the
+        # recording header, because a log that cannot be tied to a build is
+        # evidence about nothing in particular.
+        self.build = build
+        self.tracker = launches.Tracker(profile)
         self.total = 0
         self.dropped = 0
         self.started = time.time()
@@ -222,6 +234,7 @@ class Session:
         if line.level == "fatal":
             self.crashes.append(line)
 
+        self.tracker.feed(line)
         for tag in line.tags or ("(untagged)",):
             stat = self.tags.get(tag)
             if stat is None:
@@ -289,7 +302,7 @@ class Session:
         return sorted(self._stalled)
 
     def filtered(self, needle="", levels=None, tags=None, regex=False, limit=None,
-                 max_n=0):
+                 max_n=0, hide_historical=False, launch=0):
         """The lines a view should show.
 
         Walks newest-first and stops once `limit` is reached, because the common
@@ -309,6 +322,10 @@ class Session:
             # it keep arriving, keep counting and keep being recorded - pausing
             # is about reading, not about dropping evidence.
             if max_n and line.n > max_n:
+                continue
+            if hide_historical and line.historical:
+                continue
+            if launch and line.launch != launch:
                 continue
             if levels and line.level not in levels:
                 continue
@@ -403,6 +420,8 @@ class Session:
             "fatal": self.levels.get("fatal", 0),
             "stalled": len(self._stalled),
             "consoles": len(self.consoles),
+            "launches": len(self.tracker.launches),
+            "skew": self.tracker.skew,
         }
 
 

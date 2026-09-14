@@ -168,21 +168,93 @@ same name, so updating VoidBuster never overwrites your edits.
 
 ## Crashes
 
-`--crashes 192.168.1.110` pulls dumps over FTP; the Crashes tab does the same
-with a button. Dumps are parsed by shape rather than by format — registers look
-like registers and addresses look like addresses — because crash logger output
-has changed between Aroma releases and homebrew writes its own variants.
+On Aroma a crash dump is **not a file**. It is a directory named for the moment
+it was written, holding 100 ring chunks of 32KB plus a 4-byte `meta.bin`. Three
+things defeat a naive reader, and all three are handled here:
 
-Addresses inside the RPX window (`0x02000000`–`0x10000000`) can be named:
+- **It is a directory, and the fetch has to recurse.** A flat listing that keeps
+  `*.txt` finds nothing at all.
+- **The ring has wrapped.** Read in filename order the log jumps backwards in
+  the middle. VoidBuster finds the seam — the single point where the clock goes
+  back — and rotates, so the exception ends up where it belongs, at the end.
+  Where no single seam exists the order is a best guess, and the tab says so
+  rather than pretending.
+- **Records are separated by CR, not LF**, and each is prefixed with its own
+  `HH;MM;SS;mmm:` clock. Splitting on newlines yields one enormous line per
+  chunk and every downstream parser gives up.
 
 ```bash
-python voidbuster.py --read-crash crash_logs/dump.txt --elf build/mygame.elf
+python voidbuster.py --crashes 192.168.1.110          # pull dumps, recursively
+python voidbuster.py --read-crash crash_logs/2026-09-13_13-13-14
 ```
 
-Anything in the `0x1nnnnnnn` or `0xe`/`0xf` ranges is an OS library and will not
-resolve — that is expected, not a failure.
+```
+Core1  Instruction  at 0x0c9c1040  safe|_localeconv_r+0x10  touching 0x00000030
+  ring: 100 chunks, 39357 records, seam at chunk 64
+  #0  0x0c9c1040  safe|_localeconv_r+0x10
+  #1  0x0c9c31d4  safe|_svfprintf_r+0x2c
+```
 
-![signals](docs/tab2.png)
+Dumps are parsed by shape rather than by format — registers look like
+registers, stack frames look like stack frames — because crash logger output
+has changed between Aroma releases and homebrew writes its own variants. Frames
+the console resolved itself keep their `module|symbol+offset`; the rest can be
+named from an ELF with `--elf`, which turns partial frames into `file:line` and
+makes the ones the module resolver missed readable at all.
+
+Addresses inside the RPX window (`0x02000000`–`0x10000000`) are the ones worth
+handing to addr2line. Anything in the `0x1nnnnnnn` or `0xe`/`0xf` ranges is an
+OS library and will not resolve — that is expected, not a failure.
+
+## Runs
+
+A capture left going all evening is not one log, it is eight or ten separate
+experiments. The **Runs** tab splits it and gives each a verdict:
+
+| run | start | build | lines | replayed | errors | lasted | ended |
+|---|---|---|---|---|---|---|---|
+| 12 | 20:41:07 | 3a2eef4 | 679 | 0 | 37 | 4m12s | crashed |
+| 13 | 20:45:28 | 3a2eef4 | 998 | 34 | 48 | 6m03s | clean exit |
+
+A run ends where a launch banner appears, or where the console goes quiet for
+20s — the second rule needs no cooperation from the program being debugged.
+Click a run number to filter the Live tab to it. `--runs` prints the same table
+headless.
+
+**Replayed lines are marked, not hidden.** Ports commonly dump the previous
+session's breadcrumbs at startup, and by content those are indistinguishable
+from live ones — same tags, same format. The tell is that their embedded clock
+runs behind the run they appear in; those lines are dimmed and labelled `hist`,
+and **hide replays** removes them.
+
+**Build under test** is a field in Setup, stamped into the session header.
+Automatic detection reads `Commit:` and friends when they are on screen, but a
+capture started after boot has already missed them — and a log that cannot be
+tied to a build is evidence about nothing in particular.
+
+## Two clocks
+
+Capture time and the time the game stamps on its own messages are not the same
+clock, and in real logs they can be the better part of an hour apart.
+VoidBuster measures the offset and shows it — `console clock +52m27s ahead of
+the game's` — and the **timestamps** setting switches the column between
+capture, console, or both.
+
+## Console died, or network died?
+
+An abruptly-ending UDP log looks identical either way, and that ambiguity is
+expensive: it is the difference between reading a crash and chasing one that
+never happened. When the stream goes quiet for 8s, VoidBuster asks the console
+directly and writes the answer into the log next to the silence:
+
+```
+-- stream quiet 9s: console still responding - the logging stopped, not the
+   console (ping ok, tcp/21 open) --
+!! stream quiet 9s: console unreachable - it went down with the log
+   (ping timeout, no tcp answer) !!
+```
+
+`--probe HOST` runs the same check once and exits.
 
 ## Nothing is arriving
 
@@ -238,6 +310,9 @@ voidbuster/session.py  buffer, counters, rates, stalls, recording, snapshots
 voidbuster/crash.py    FTP fetch, dump parsing, addr2line
 voidbuster/look.py     themes, text size, density, sound - all persisted
 voidbuster/paths.py    beside-the-exe vs inside-the-build, which a frozen app must split
+voidbuster/syslog.py   Aroma ring dumps: find, order, split into records
+voidbuster/launches.py runs, verdicts, replay detection, clock skew
+voidbuster/liveness.py console-died vs network-died
 voidbuster/cli.py      headless
 voidbuster/gui.py      the window (VertexUI + Dear ImGui)
 profiles/           _base.json is always on; the rest are per game

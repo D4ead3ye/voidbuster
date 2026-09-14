@@ -23,7 +23,7 @@ from imgui_bundle import ImVec2, ImVec4, hello_imgui, imgui
 
 import vertexui as vui
 
-from . import crash, look, paths, rules, session, sources
+from . import crash, launches, liveness, look, paths, rules, session, sources
 
 # Beside the exe when frozen, so a session outlives the process. See paths.py.
 ROOT = paths.app_dir()
@@ -92,6 +92,16 @@ class App:
         self.dumps = []
         self.dump_index = -1
         self.visible = []
+        self.dump = None
+        self.dump_path = None
+        self.last_saved = None
+        self.run_filter = 0
+        self.hide_historical = False
+        # Probes the console when the stream goes quiet, so "it stopped" can be
+        # told from "it died". Its answer arrives as an ordinary log line.
+        self.watchdog = liveness.Watchdog(
+            emit=lambda text: self.queue.put(sources.Event(text=text, source="voidbuster")),
+            host_of=self.host)
         self.symbols = {}
         self.symbol_note = ""
         self.new_session()
@@ -108,7 +118,8 @@ class App:
         self.sess = session.Session(
             record_dir=None if self.settings.get("no_record") else LOG_DIR,
             profile=profile,
-            title=forced.name if forced else "session")
+            title=forced.name if forced else "session",
+            build=str(self.settings.get("build", "")).strip())
         self.detected = bool(forced)
 
     def ports(self):
@@ -183,6 +194,7 @@ class App:
                 continue
             self.sess.add(event)
         if drained:
+            self.watchdog.note_traffic()
             self.sess.flush()
             if not self.detected and not self.forced:
                 hit = rules.pick(self.profiles, self.sess.sample_lines())
@@ -191,6 +203,8 @@ class App:
                     self.detected = True
                     self.note("profile detected: " + hit.name)
         self.sess.check_stalls()
+        # Silence is the signal here, so this runs whether or not lines arrived.
+        self.watchdog.poll(self.sess.last_at)
 
     # ------------------------------------------------------------------ draw
 
@@ -209,6 +223,14 @@ class App:
         elif s["errors"]:
             imgui.same_line()
             imgui.text_colored(t.warn, "%d errors" % s["errors"])
+        runs = len(self.sess.tracker.launches)
+        if runs > 1:
+            imgui.same_line()
+            imgui.text_colored(t.text_dim, "%d runs" % runs)
+        skew = self.sess.tracker.skew_text()
+        if skew:
+            imgui.same_line()
+            imgui.text_colored(t.text_mute, skew)
         if self.sess.stalled_tags():
             imgui.same_line()
             imgui.text_colored(t.warn, "stalled: " + ", ".join(self.sess.stalled_tags()[:3]))
@@ -217,9 +239,9 @@ class App:
             imgui.text_colored(t.ok, self.message)
 
         self.tab = vui.widgets.tabs(
-            "main", ["Live", "Counters", "Signals", "Crashes", "Setup"], self.tab)
+            "main", ["Live", "Counters", "Signals", "Runs", "Crashes", "Setup"], self.tab)
         imgui.dummy(ImVec2(0, 6))
-        (self.draw_live, self.draw_counters, self.draw_signals,
+        (self.draw_live, self.draw_counters, self.draw_signals, self.draw_runs,
          self.draw_crashes, self.draw_setup)[self.tab]()
 
     # ------------------------------------------------------------------ live
@@ -250,7 +272,7 @@ class App:
             self.visible = []
             self.note("new session")
         imgui.same_line()
-        if vui.widgets.button("Save .txt", tooltip="write what is on screen to logs/*.txt"):
+        if vui.widgets.button("Save .txt", tooltip="write what is on screen to " + str(LOG_DIR)):
             self.save_visible()
         imgui.same_line()
         if vui.widgets.button("Snapshot", tooltip="the lines around the last fatal one"):
@@ -275,6 +297,8 @@ class App:
             self.filter_text = text
         imgui.same_line()
         self.filter_regex = vui.widgets.checkbox("regex", self.filter_regex)
+        imgui.same_line()
+        self.hide_historical = vui.widgets.checkbox("hide replays", self.hide_historical)
         imgui.same_line()
         for level in LEVELS:
             on = level in self.filter_levels
@@ -310,10 +334,19 @@ class App:
         lines, err = self.sess.filtered(
             self.filter_text, self.filter_levels or None,
             self.filter_tags or None, self.filter_regex, limit=DRAW_LIMIT,
-            max_n=self.paused_at)
+            max_n=self.paused_at, hide_historical=self.hide_historical,
+            launch=self.run_filter)
         self.visible = lines
         if err:
             imgui.text_colored(t.danger, err)
+        if self.last_saved is not None:
+            imgui.text_colored(t.text_mute, "last saved  " + str(self.last_saved))
+        if self.run_filter:
+            imgui.same_line()
+            imgui.text_colored(t.accent_bright, "run %d only" % self.run_filter)
+            imgui.same_line()
+            if imgui.small_button("show all runs"):
+                self.run_filter = 0
         if self.paused:
             behind = self.sess.total - self.paused_at
             imgui.same_line()
@@ -334,8 +367,11 @@ class App:
         with vui.fonts.use("mono" if mono else "ui"):
             for line in lines:
                 if show_time:
-                    imgui.text_colored(t.text_mute, line.stamp())
+                    imgui.text_colored(t.text_mute, self.line_time(line))
                     imgui.same_line(0, 6)
+                if line.historical:
+                    imgui.text_colored(t.text_mute, "hist")
+                    imgui.same_line(0, 4)
                 tagged = show_tags and line.tags
                 if tagged:
                     stat = self.sess.tags.get(line.tags[0])
@@ -344,6 +380,9 @@ class App:
                     imgui.same_line(0, 4)
                 col = {"fatal": t.danger, "error": t.danger, "warn": t.warn,
                        "debug": t.text_dim, "trace": t.text_mute}.get(line.level, t.text)
+                # A replayed breadcrumb reads as live unless it is visibly not.
+                if line.historical:
+                    col = t.text_mute
                 imgui.text_colored(col, line.body if tagged else line.text)
         imgui.pop_style_var()
         self.follow_scroll()
@@ -421,11 +460,87 @@ class App:
             bits.append("tags " + ",".join(sorted(self.filter_tags)))
         path, err = self.sess.save_text(LOG_DIR, self.visible,
                                         note="; ".join(bits) if bits else "")
-        self.note(("saved " + path.name) if path else ("save failed: " + err))
+        if path:
+            # The full path, not just the name. The file lands beside the exe,
+            # which is not where anyone looks first.
+            self.note("saved %d lines to %s" % (len(self.visible), path))
+            self.last_saved = path
+        else:
+            self.note("save failed: " + err)
 
     def busy(self):
         """True while there is motion worth rendering at full rate."""
         return self.gliding or (time.time() - self.sess.last_at) < 1.0
+
+    def line_time(self, line):
+        """The timestamp column, in whichever clock is selected.
+
+        Two clocks are in play and they disagree: when we received the line,
+        and what the game stamped on it. Reconciling them by hand is exactly
+        the chore this avoids.
+        """
+        mode = str(self.settings.get("clock", "capture"))
+        if mode == "console" and line.clock:
+            return line.clock
+        if mode == "both" and line.clock:
+            return line.stamp() + " / " + line.clock
+        return line.stamp()
+
+    def draw_runs(self):
+        """One row per launch: which build, how it ended, how long it lasted."""
+        t = vui.theme.current()
+        rows = self.sess.tracker.summary()
+        if not rows:
+            imgui.text_colored(t.text_dim, "No runs yet. A run is bounded by a launch "
+                                           "banner, or by the console going quiet.")
+            return
+        crashed = sum(1 for r in rows if r["verdict"] == "crashed")
+        clean = sum(1 for r in rows if r["verdict"] == "clean exit")
+        imgui.text_colored(t.text_dim,
+                           "%d runs   %d crashed   %d clean   %d cut off"
+                           % (len(rows), crashed, clean, len(rows) - crashed - clean))
+        skew = self.sess.tracker.skew_text()
+        if skew:
+            imgui.same_line()
+            imgui.text_colored(t.text_mute, "   " + skew)
+        imgui.dummy(ImVec2(0, 4))
+
+        flags = (imgui.TableFlags_.borders_inner_h | imgui.TableFlags_.row_bg |
+                 imgui.TableFlags_.scroll_y | imgui.TableFlags_.sizing_stretch_prop)
+        if not imgui.begin_table("runs", 8, flags, ImVec2(0, 0)):
+            return
+        for name, weight in (("run", 0.7), ("start", 1.1), ("build", 1.6),
+                             ("lines", 0.9), ("replayed", 1.0), ("errors", 0.9),
+                             ("lasted", 1.0), ("ended", 1.4)):
+            imgui.table_setup_column(name, imgui.TableColumnFlags_.width_stretch, weight)
+        imgui.table_headers_row()
+        for r in rows[::-1][:400]:
+            imgui.table_next_row()
+            imgui.table_next_column()
+            imgui.push_id(r["n"])
+            if imgui.small_button(str(r["n"])):
+                self.run_filter = 0 if self.run_filter == r["n"] else r["n"]
+                self.tab = 0
+            imgui.pop_id()
+            imgui.table_next_column()
+            imgui.text_colored(t.text, r["start"])
+            imgui.table_next_column()
+            imgui.text_colored(t.text if r["build"] != "-" else t.text_mute, r["build"])
+            imgui.table_next_column()
+            imgui.text_colored(t.text_dim, str(r["lines"]))
+            imgui.table_next_column()
+            imgui.text_colored(t.warn if r["historical"] else t.text_mute,
+                               str(r["historical"]))
+            imgui.table_next_column()
+            imgui.text_colored(t.danger if r["errors"] else t.text_mute, str(r["errors"]))
+            imgui.table_next_column()
+            span = r["span"]
+            imgui.text_colored(t.text_dim, _dur(span if span is not None else r["duration"]))
+            imgui.table_next_column()
+            colour = {"crashed": t.danger, "clean exit": t.ok,
+                      "running": t.accent_bright}.get(r["verdict"], t.text_dim)
+            imgui.text_colored(colour, r["verdict"])
+        imgui.end_table()
 
     # -------------------------------------------------------------- counters
 
@@ -545,15 +660,15 @@ class App:
 
         imgui.begin_child("dumplist", ImVec2(300, 0), True)
         for i, path in enumerate(self.dumps):
-            if imgui.selectable(path.name, i == self.dump_index)[0]:
+            label = ("[dir] " if path.is_dir() else "") + path.name
+            if imgui.selectable(label, i == self.dump_index)[0]:
                 self.dump_index = i
-                self.symbols = {}
-                self.symbol_note = ""
         imgui.end_child()
         imgui.same_line()
         imgui.begin_child("dumpview", ImVec2(0, 0), True)
-        if 0 <= self.dump_index < len(self.dumps):
-            self.draw_dump(crash.parse_file(self.dumps[self.dump_index]), elf)
+        dump = self.current_dump()
+        if dump is not None:
+            self.draw_dump(dump, elf)
         else:
             imgui.text_colored(t.text_dim, "pick a dump")
         imgui.end_child()
@@ -561,6 +676,29 @@ class App:
     def draw_dump(self, dump, elf):
         t = vui.theme.current()
         imgui.text_colored(t.danger, dump.headline())
+        info = dump.info or {}
+        if info.get("chunks"):
+            order = "seam at chunk %s" % info["seam"] if info.get("certain") \
+                else "order inferred - no single seam found"
+            imgui.text_colored(t.text_dim,
+                               "ring: %d chunks, %d records, %s"
+                               % (info["chunks"], info.get("records", 0), order))
+        stack = dump.stack()
+        if stack:
+            imgui.dummy(ImVec2(0, 4))
+            imgui.text_colored(t.text_dim, "stack")
+            imgui.separator()
+            for i, f in enumerate(stack):
+                imgui.text_colored(t.text_mute, "#%-2d" % i)
+                imgui.same_line(0, 6)
+                imgui.text_colored(t.text, "0x%08x" % f.lr)
+                named = f.label() or self.symbols.get(f.lr, "")
+                if named:
+                    imgui.same_line(0, 10)
+                    imgui.text_colored(t.accent_bright, named)
+                elif self.symbols.get(f.lr) == "":
+                    imgui.same_line(0, 10)
+                    imgui.text_colored(t.text_mute, "(not in this ELF)")
         if dump.spr:
             imgui.text_colored(t.text_dim,
                                "  ".join(k + " " + v for k, v in sorted(dump.spr.items())))
@@ -598,11 +736,35 @@ class App:
             imgui.text_colored(t.danger, line.stamp() + "  " + line.text)
 
     def reload_dumps(self):
+        """Dump folders as well as loose files.
+
+        On Aroma a dump is a directory of ring chunks, which is why looking only
+        for *.txt found nothing at all.
+        """
         try:
-            self.dumps = sorted(CRASH_DIR.glob("*.txt")) + sorted(CRASH_DIR.glob("*.log"))
+            self.dumps = crash.local_dumps(CRASH_DIR)
         except OSError:
             self.dumps = []
-        self.dump_index = 0 if self.dumps else -1
+        self.dump_index = len(self.dumps) - 1 if self.dumps else -1
+        self.dump = None
+        self.dump_path = None
+
+    def current_dump(self):
+        """Parse lazily and cache: reassembling a ring is megabytes of work and
+        must not happen once a frame."""
+        if not (0 <= self.dump_index < len(self.dumps)):
+            return None
+        path = self.dumps[self.dump_index]
+        if self.dump_path != path:
+            try:
+                self.dump = crash.open_any(path)
+            except (OSError, ValueError) as e:
+                self.dump = None
+                self.note("could not read dump: " + str(e))
+            self.dump_path = path
+            self.symbols = {}
+            self.symbol_note = ""
+        return self.dump
 
     # ----------------------------------------------------------------- setup
 
@@ -632,6 +794,15 @@ class App:
             if imgui.small_button("use " + ip):
                 self.settings["host"] = ip
 
+        imgui.set_next_item_width(240)
+        changed, build = imgui.input_text("build under test",
+                                          str(self.settings.get("build", "")))
+        if changed:
+            self.settings["build"] = build
+        imgui.same_line()
+        imgui.text_colored(t.text_dim, "stamped into the session header; a capture "
+                                       "started after boot cannot read it off the log")
+
         imgui.dummy(ImVec2(0, 8))
         imgui.separator_text("capture")
         imgui.set_next_item_width(200)
@@ -645,6 +816,16 @@ class App:
         changed, tcp = imgui.input_text("TCP port", str(self.settings.get("tcp", "0")))
         if changed:
             self.settings["tcp"] = tcp
+
+        modes = ["capture", "console", "both"]
+        mode = str(self.settings.get("clock", "capture"))
+        imgui.set_next_item_width(160)
+        changed, pick = imgui.combo("timestamps",
+                                    modes.index(mode) if mode in modes else 0, modes)
+        if changed:
+            self.settings["clock"] = modes[pick]
+        imgui.same_line()
+        imgui.text_colored(t.text_dim, "when we received it, what the game stamped, or both")
 
         imgui.dummy(ImVec2(0, 8))
         imgui.separator_text("profile")
@@ -819,6 +1000,17 @@ CHECKLIST = [
     "Port sweep finds a title that logs somewhere other than 4405.",
     "No log at all after a hard freeze is normal - fetch the crash dump instead.",
 ]
+
+
+def _dur(seconds):
+    if seconds is None:
+        return "-"
+    seconds = int(seconds)
+    if seconds < 60:
+        return "%ds" % seconds
+    if seconds < 3600:
+        return "%dm%02ds" % (seconds // 60, seconds % 60)
+    return "%dh%02dm" % (seconds // 3600, seconds % 3600 // 60)
 
 
 def _fmt(value):

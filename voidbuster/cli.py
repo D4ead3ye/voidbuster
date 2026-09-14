@@ -11,7 +11,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import crash, paths, rules, session, sources
+from . import crash, liveness, paths, rules, session, sources
 
 # Beside the exe when frozen, so a session outlives the process. See paths.py.
 ROOT = paths.app_dir()
@@ -69,7 +69,15 @@ def build_parser():
     p.add_argument("--crashes", nargs="?", const="", metavar="HOST",
                    help="pull crash dumps off the console over FTP, then exit; "
                         "takes the address, or none to use --host")
-    p.add_argument("--read-crash", metavar="PATH", help="parse a crash dump and print it")
+    p.add_argument("--read-crash", metavar="PATH",
+                   help="parse a crash dump and print it; PATH may be a file or an "
+                        "Aroma dump directory of ring chunks")
+    p.add_argument("--runs", action="store_true",
+                   help="print the per-launch summary when the capture ends")
+    p.add_argument("--build", default="",
+                   help="what is deployed on the console, stamped into the session header")
+    p.add_argument("--probe", metavar="HOST",
+                   help="ask whether a console is reachable, then exit")
     p.add_argument("--elf", help="ELF used to turn crash addresses into function names")
     p.add_argument("--offset", default="0",
                    help="subtract this from addresses before symbolising (hex ok)")
@@ -140,6 +148,12 @@ def run(argv=None):
                 print("          " + e["sample"])
         return 0
 
+    if args.probe:
+        result = liveness.probe(args.probe)
+        print("%s: %s" % (result["host"], result["verdict"]))
+        print("  " + result["detail"])
+        return 0 if result["alive"] else 1
+
     if args.crashes is not None:
         target = args.crashes or args.host
         if not target:
@@ -153,8 +167,16 @@ def run(argv=None):
         return 0 if got or "new of" in msg else 1
 
     if args.read_crash:
-        dump = crash.parse_file(args.read_crash)
+        dump = crash.open_any(args.read_crash)
         print(dump.headline())
+        info = dump.info or {}
+        if info.get("chunks"):
+            print("  ring: %d chunks, %d records, %s"
+                  % (info["chunks"], info.get("records", 0),
+                     ("seam at chunk %s" % info["seam"]) if info.get("certain")
+                     else "order inferred - no single seam"))
+        for i, f in enumerate(dump.stack()):
+            print("  #%-2d 0x%08x  %s" % (i, f.lr, f.label() or ""))
         if dump.spr:
             print("  " + "  ".join(k + "=" + v for k, v in sorted(dump.spr.items())))
         if dump.modules:
@@ -195,7 +217,8 @@ def run(argv=None):
     sess = session.Session(
         record_dir=None if args.no_record else args.record,
         profile=profile,
-        title=(forced.name if forced else "session"))
+        title=(forced.name if forced else "session"),
+        build=args.build)
 
     started = []
     if args.replay:
@@ -262,6 +285,8 @@ def run(argv=None):
         for src in started:
             src.stop()
         _print_stats(sess, color)
+        if args.runs:
+            _print_runs(sess)
         if sess.crashes:
             path, err = sess.snapshot_crash(CRASH_DIR)
             if path:
@@ -279,6 +304,19 @@ def _from_console(event, args):
     if not args.only_host or not args.host or not event.origin:
         return True
     return event.origin.startswith(args.host + ":")
+
+
+def _print_runs(sess):
+    rows = sess.tracker.summary()
+    if not rows:
+        return
+    skew = sess.tracker.skew_text()
+    print("\n%d run(s)%s" % (len(rows), ("   " + skew) if skew else ""))
+    print("  run  start     build           lines  replayed  errors  ended")
+    for r in rows:
+        print("  %3d  %s  %-14s %6d  %8d  %6d  %s"
+              % (r["n"], r["start"], r["build"][:14], r["lines"],
+                 r["historical"], r["errors"], r["verdict"]))
 
 
 def _show(line, levels, tags, grep):
